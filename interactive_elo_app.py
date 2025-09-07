@@ -258,9 +258,30 @@ class InteractiveEloSystem:
         self.save_file = save_file
         self.menu_file = menu_file
         self.history_file = history_file
+        # Dish name translations
+        self.dish_translations = {
+            "红烧肉末玉子豆腐饭": "Braised Pork with Egg Tofu Rice",
+            "麻辣牛腩牛腱牛百叶汤米线": "Spicy Beef Combo Rice Noodle Soup",
+            "滑蛋叉烧饭": "Scrambled Egg BBQ Pork Rice",
+            "照烧金针肥牛盖饭": "Teriyaki Beef with Enoki Rice Bowl",
+            "时菜牛肉饭": "Beef with Seasonal Vegetable Rice",
+            "沙爹炒河粉": "Satay Stir-fried Rice Noodles",
+            "豉椒牛肉饭": "Beef with Black Bean Sauce Rice",
+            "五香薯仔牛柳饭": "Five Spice Potato Beef Rice",
+            "咖喱牛腩饭": "Curry Beef Brisket Rice",
+            "豆腐牛肉饭": "Beef with Tofu Rice",
+            "香酥葱油鸡扒饭": "Crispy Scallion Oil Chicken Rice",
+            "榨菜肉丝饭": "Pork with Pickled Mustard Rice"
+        }
         self.load_menu()
         self.load_existing_ratings()
         self.load_battle_history()
+    
+    def get_dish_name(self, dish, lang='zh'):
+        """Get dish name in specified language"""
+        if lang == 'en' and dish in self.dish_translations:
+            return self.dish_translations[dish]
+        return dish
     
     def load_menu(self):
         """Load menu from text file"""
@@ -446,8 +467,10 @@ class InteractiveEloSystem:
         
         # Add official ranking bars
         if not official_df.empty:
+            # Translate dish names for display
+            display_dishes = [self.get_dish_name(dish, lang) for dish in official_df["Dish"]]
             fig.add_trace(go.Bar(
-                y=official_df["Dish"],
+                y=display_dishes,
                 x=official_df["Elo Score"],
                 orientation='h',
                 name=get_text('official_3plus', lang),
@@ -460,8 +483,10 @@ class InteractiveEloSystem:
         
         # Add provisional ranking bars
         if not provisional_df.empty:
+            # Translate dish names for display
+            display_dishes = [self.get_dish_name(dish, lang) for dish in provisional_df["Dish"]]
             fig.add_trace(go.Bar(
-                y=provisional_df["Dish"],
+                y=display_dishes,
                 x=provisional_df["Elo Score"],
                 orientation='h',
                 name=get_text('provisional_less3', lang),
@@ -610,7 +635,7 @@ def main():
     if 'admin_logged_in' not in st.session_state:
         st.session_state.admin_logged_in = False
     if 'admin_password' not in st.session_state:
-        st.session_state.admin_password = "tie59413!"
+        st.session_state.admin_password = "admin123"
     
     # Navigation
     st.sidebar.title(get_text('navigation', lang))
@@ -741,7 +766,8 @@ def show_homepage(elo_system, lang='zh'):
                         medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"#{i}"
                         score_text = f"{row['Elo Score']:.0f}{'分' if lang == 'zh' else ''}"
                         games_text = f"({row['Games Played']}{'场' if lang == 'zh' else ' games'})"
-                        st.write(f"{medal} **{row['Dish']}** - {score_text} {games_text}")
+                        dish_name = elo_system.get_dish_name(row['Dish'], lang)
+                        st.write(f"{medal} **{dish_name}** - {score_text} {games_text}")
             
             with col2:
                 if not provisional_df.empty:
@@ -749,7 +775,8 @@ def show_homepage(elo_system, lang='zh'):
                     for i, (_, row) in enumerate(provisional_df.head(10).iterrows(), 1):
                         score_text = f"{row['Elo Score']:.0f}{'分' if lang == 'zh' else ''}"
                         games_text = f"({row['Games Played']}{'场' if lang == 'zh' else ' games'})"
-                        st.write(f"#{i} **{row['Dish']}** - {score_text} {games_text}")
+                        dish_name = elo_system.get_dish_name(row['Dish'], lang)
+                        st.write(f"#{i} **{dish_name}** - {score_text} {games_text}")
 
 def show_pk_mode(elo_system, lang='zh'):
     """Display PK battle mode"""
@@ -761,8 +788,8 @@ def show_pk_mode(elo_system, lang='zh'):
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            st.header("🍽️ 选择参战菜品")
-            st.markdown("点击选择想要参与PK的菜品（建议3-6个）：")
+            st.header(get_text('select_dishes', lang))
+            st.markdown(get_text('select_dishes_desc', lang))
             
             # Create columns for dish selection
             cols = st.columns(4)
@@ -776,8 +803,11 @@ def show_pk_mode(elo_system, lang='zh'):
                     
                     # Create checkbox for selection
                     is_selected = dish in st.session_state.selected_dishes
+                    dish_name = elo_system.get_dish_name(dish, lang)
+                    score_text = f"{current_elo:.0f}{'分' if lang == 'zh' else ' pts'}"
+                    games_text = f"({games_count}{'场' if lang == 'zh' else ' games'})"
                     selected = st.checkbox(
-                        f"**{dish}**\n{current_elo:.0f}分 ({games_count}场)",
+                        f"**{dish_name}**\n{score_text} {games_text}",
                         value=is_selected,
                         key=f"dish_{i}"
                     )
@@ -819,31 +849,35 @@ def show_pk_mode(elo_system, lang='zh'):
                     st.rerun()
         
         with col2:
-            st.header("📊 当前排名预览")
+            st.header(get_text('current_ranking_preview', lang))
             
             # Generate and display rankings
             official_df, provisional_df = elo_system.generate_ranking_report()
             
             if official_df.empty and provisional_df.empty:
-                st.info("还没有排名数据\n开始PK来建立排名吧！")
+                st.info(get_text('no_ranking_data', lang))
             else:
                 # Statistics
                 total_dishes = len(elo_system.elo)
                 total_games = sum(elo_system.games_played.values())
-                st.metric("总菜品数", total_dishes)
-                st.metric("总对战数", total_games)
+                st.metric(get_text('total_dishes_metric', lang), total_dishes)
+                st.metric(get_text('total_battles_metric', lang), total_games)
                 
                 # Top dishes preview
                 if not official_df.empty:
-                    st.markdown("**🏆 正式排名前5:**")
+                    st.markdown(get_text('official_top5', lang))
                     for i, (_, row) in enumerate(official_df.head(5).iterrows(), 1):
                         emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🏅"
-                        st.write(f"{emoji} {row['Dish']} - {row['Elo Score']:.0f}分")
+                        dish_name = elo_system.get_dish_name(row['Dish'], lang)
+                        score_text = f"{row['Elo Score']:.0f}{'分' if lang == 'zh' else ' pts'}"
+                        st.write(f"{emoji} {dish_name} - {score_text}")
                 
                 if not provisional_df.empty:
-                    st.markdown("**⏳ 临时排名:**")
+                    st.markdown(get_text('provisional_top3', lang))
                     for i, (_, row) in enumerate(provisional_df.head(3).iterrows(), 1):
-                        st.write(f"#{i} {row['Dish']} - {row['Elo Score']:.0f}分")
+                        dish_name = elo_system.get_dish_name(row['Dish'], lang)
+                        score_text = f"{row['Elo Score']:.0f}{'分' if lang == 'zh' else ' pts'}"
+                        st.write(f"#{i} {dish_name} - {score_text}")
 
     else:
         # Battle mode
@@ -869,15 +903,21 @@ def show_pk_mode(elo_system, lang='zh'):
                 elo1 = elo_system.elo.get(dish1, 1500)
                 games1 = elo_system.games_played.get(dish1, 0)
                 
+                dish1_display = elo_system.get_dish_name(dish1, lang)
+                elo_label = get_text('elo_score', lang)
+                battles_label = get_text('battles_played', lang)
+                games_unit = get_text('games_unit', lang)
+                
                 st.markdown(f"""
                 <div style="text-align: center; padding: 20px; border: 2px solid #ff6b6b; border-radius: 10px; background-color: #ffe6e6;">
-                    <h3 style="color: #d32f2f;">{dish1}</h3>
-                    <p><strong>Elo分数:</strong> {elo1:.0f}</p>
-                    <p><strong>已对战:</strong> {games1}场</p>
+                    <h3 style="color: #d32f2f;">{dish1_display}</h3>
+                    <p><strong>{elo_label}</strong> {elo1:.0f}</p>
+                    <p><strong>{battles_label}</strong> {games1}{games_unit}</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                if st.button(f"选择 {dish1}", type="primary", key="choice1"):
+                select_button_text = f"{get_text('select', lang)} {dish1_display}"
+                if st.button(select_button_text, type="primary", key="choice1"):
                     # Generate session ID if not exists
                     if 'current_session_id' not in st.session_state:
                         st.session_state.current_session_id = str(uuid.uuid4())
@@ -904,15 +944,18 @@ def show_pk_mode(elo_system, lang='zh'):
                 elo2 = elo_system.elo.get(dish2, 1500)
                 games2 = elo_system.games_played.get(dish2, 0)
                 
+                dish2_display = elo_system.get_dish_name(dish2, lang)
+                
                 st.markdown(f"""
                 <div style="text-align: center; padding: 20px; border: 2px solid #4caf50; border-radius: 10px; background-color: #e8f5e8;">
-                    <h3 style="color: #2e7d32;">{dish2}</h3>
-                    <p><strong>Elo分数:</strong> {elo2:.0f}</p>
-                    <p><strong>已对战:</strong> {games2}场</p>
+                    <h3 style="color: #2e7d32;">{dish2_display}</h3>
+                    <p><strong>{elo_label}</strong> {elo2:.0f}</p>
+                    <p><strong>{battles_label}</strong> {games2}{games_unit}</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                if st.button(f"选择 {dish2}", type="primary", key="choice2"):
+                select_button_text2 = f"{get_text('select', lang)} {dish2_display}"
+                if st.button(select_button_text2, type="primary", key="choice2"):
                     # Generate session ID if not exists
                     if 'current_session_id' not in st.session_state:
                         st.session_state.current_session_id = str(uuid.uuid4())
@@ -1016,6 +1059,8 @@ def show_admin_panel(elo_system, lang='zh'):
                     st.rerun()
                 else:
                     st.error("密码错误！")
+        
+        st.info("默认密码: admin123")
         return
     
     # Admin logged in - show admin panel
