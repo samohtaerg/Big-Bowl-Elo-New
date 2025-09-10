@@ -258,24 +258,39 @@ class InteractiveEloSystem:
         self.save_file = save_file
         self.menu_file = menu_file
         self.history_file = history_file
-        # Dish name translations
-        self.dish_translations = {
-            "红烧肉末玉子豆腐饭": "Braised Pork with Egg Tofu Rice",
-            "麻辣牛腩牛腱牛百叶汤米线": "Spicy Beef Combo Rice Noodle Soup",
-            "滑蛋叉烧饭": "Scrambled Egg BBQ Pork Rice",
-            "照烧金针肥牛盖饭": "Teriyaki Beef with Enoki Rice Bowl",
-            "时菜牛肉饭": "Beef with Seasonal Vegetable Rice",
-            "沙爹炒河粉": "Satay Stir-fried Rice Noodles",
-            "豉椒牛肉饭": "Beef with Black Bean Sauce Rice",
-            "五香薯仔牛柳饭": "Five Spice Potato Beef Rice",
-            "咖喱牛腩饭": "Curry Beef Brisket Rice",
-            "豆腐牛肉饭": "Beef with Tofu Rice",
-            "香酥葱油鸡扒饭": "Crispy Scallion Oil Chicken Rice",
-            "榨菜肉丝饭": "Pork with Pickled Mustard Rice"
-        }
+        # Load dish name translations from menu file
+        self.dish_translations = self.load_dish_translations()
         self.load_menu()
         self.load_existing_ratings()
         self.load_battle_history()
+    
+    def load_dish_translations(self):
+        """Load dish translations from menu file"""
+        translations = {}
+        encodings_to_try = ['utf-8-sig', 'utf-8', 'gb2312', 'gbk', 'cp936']
+        
+        if os.path.exists(self.menu_file):
+            for encoding in encodings_to_try:
+                try:
+                    with open(self.menu_file, 'r', encoding=encoding) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and '|' in line:
+                                # Extract number, Chinese name, English name
+                                parts = line.split('→', 1) if '→' in line else ['', line]
+                                if len(parts) == 2:
+                                    content = parts[1].strip()
+                                    if '|' in content:
+                                        chinese_name, english_name = content.split('|', 1)
+                                        chinese_name = chinese_name.strip()
+                                        english_name = english_name.strip()
+                                        if chinese_name and english_name:
+                                            translations[chinese_name] = english_name
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+        
+        return translations
     
     def get_dish_name(self, dish, lang='zh'):
         """Get dish name in specified language"""
@@ -304,11 +319,20 @@ class InteractiveEloSystem:
                     for line in f:
                         line = line.strip()
                         if line:  # Skip empty lines
-                            # Check if line has format "数字→菜名" or just "菜名"
+                            # Check if line has format "数字→菜名 | English" or just "菜名"
                             if '→' in line:
-                                dish_name = line.split('→')[1].strip()
+                                dish_content = line.split('→')[1].strip()
+                                # Extract Chinese name from "Chinese | English" format
+                                if '|' in dish_content:
+                                    dish_name = dish_content.split('|')[0].strip()
+                                else:
+                                    dish_name = dish_content
                             else:
-                                dish_name = line
+                                # Handle lines without number prefix
+                                if '|' in line:
+                                    dish_name = line.split('|')[0].strip()
+                                else:
+                                    dish_name = line
                             
                             if dish_name:
                                 self.all_dishes.append(dish_name)
@@ -460,62 +484,82 @@ class InteractiveEloSystem:
         return official_df, provisional_df
     
     def create_plotly_chart(self, lang='zh'):
-        """Create interactive Plotly chart"""
+        """Create interactive Plotly chart with dish names inside bars"""
         official_df, provisional_df = self.generate_ranking_report()
         
         fig = go.Figure()
         
+        # Create combined dataframe for unified display
+        all_dishes = []
+        y_labels = []
+        
         # Add official ranking bars
         if not official_df.empty:
-            # Translate dish names for display
-            display_dishes = [self.get_dish_name(dish, lang) for dish in official_df["Dish"]]
-            fig.add_trace(go.Bar(
-                y=display_dishes,
-                x=official_df["Elo Score"],
-                orientation='h',
-                name=get_text('official_3plus', lang),
-                marker_color='orange',
-                text=[f"{row['Elo Score']:.0f}" for _, row in official_df.iterrows()],
-                textposition='outside',
-                hovertemplate='<b>%{y}</b><br>Elo: %{x:.0f}<br>Games: %{customdata}<extra></extra>',
-                customdata=official_df["Games Played"]
-            ))
+            for i, (_, row) in enumerate(official_df.iterrows()):
+                dish_name = self.get_dish_name(row['Dish'], lang)
+                # Use full dish name without truncation
+                dish_display = dish_name
+                
+                fig.add_trace(go.Bar(
+                    y=[f"#{i+1}"],
+                    x=[row['Elo Score']],
+                    orientation='h',
+                    name=get_text('official_3plus', lang),
+                    marker_color='orange',
+                    text=[f"{dish_display} ({row['Elo Score']:.0f})"],
+                    textposition='inside',
+                    textfont=dict(color='white', size=11),
+                    hovertemplate=f'<b>{dish_name}</b><br>Elo: {row["Elo Score"]:.0f}<br>Games: {row["Games Played"]}<extra></extra>',
+                    showlegend=(i == 0)  # Only show legend for first item
+                ))
         
         # Add provisional ranking bars
         if not provisional_df.empty:
-            # Translate dish names for display
-            display_dishes = [self.get_dish_name(dish, lang) for dish in provisional_df["Dish"]]
-            fig.add_trace(go.Bar(
-                y=display_dishes,
-                x=provisional_df["Elo Score"],
-                orientation='h',
-                name=get_text('provisional_less3', lang),
-                marker_color='gray',
-                text=[f"{row['Elo Score']:.0f}" for _, row in provisional_df.iterrows()],
-                textposition='outside',
-                hovertemplate='<b>%{y}</b><br>Elo: %{x:.0f}<br>Games: %{customdata}<extra></extra>',
-                customdata=provisional_df["Games Played"]
-            ))
+            official_count = len(official_df)
+            for i, (_, row) in enumerate(provisional_df.iterrows()):
+                dish_name = self.get_dish_name(row['Dish'], lang)
+                # Use full dish name without truncation
+                dish_display = dish_name
+                
+                fig.add_trace(go.Bar(
+                    y=[f"#{official_count + i + 1}"],
+                    x=[row['Elo Score']],
+                    orientation='h',
+                    name=get_text('provisional_less3', lang),
+                    marker_color='gray',
+                    text=[f"{dish_display} ({row['Elo Score']:.0f})"],
+                    textposition='inside',
+                    textfont=dict(color='white', size=11),
+                    hovertemplate=f'<b>{dish_name}</b><br>Elo: {row["Elo Score"]:.0f}<br>Games: {row["Games Played"]}<extra></extra>',
+                    showlegend=(i == 0)  # Only show legend for first item
+                ))
         
-        # Update layout
+        # Update layout for compact display with dish names inside bars
+        total_dishes = len(official_df) + len(provisional_df)
         fig.update_layout(
             title=get_text('chart_title', lang),
             xaxis_title="Elo Score",
-            yaxis_title="",
-            height=max(400, (len(official_df) + len(provisional_df)) * 40 + 100),
+            yaxis_title="Ranking",
+            height=max(300, total_dishes * 35 + 150),
             showlegend=True,
             legend=dict(
                 orientation="h",
-                yanchor="bottom",
-                y=-0.3,  # Move legend much further down
+                yanchor="top",
+                y=-0.1,  # Move legend back to bottom
                 xanchor="center",
                 x=0.5
             ),
-            margin=dict(b=120)  # Increase bottom margin for legend
+            margin=dict(l=50, r=50, t=100, b=50),  # Reduced left margin since names are inside bars
+            yaxis=dict(
+                tickmode='linear',
+                dtick=1,
+                autorange="reversed"  # Show #1 at top
+            ),
+            xaxis=dict(
+                showgrid=False,
+                range=[1300, 1700]  # Set wider range for better score differentiation
+            )
         )
-        
-        # Reverse y-axis to show highest ranked at top
-        fig.update_yaxes(categoryorder="total ascending")
         
         return fig
     
@@ -600,7 +644,7 @@ def main():
         current_index = lang_options.index(st.session_state.language)
         
         selected_lang = st.selectbox(
-            "🌐", 
+            "🌐 Language / 语言", 
             lang_options, 
             format_func=lambda x: LANGUAGES[x]['name'],
             index=current_index,
@@ -635,7 +679,7 @@ def main():
     if 'admin_logged_in' not in st.session_state:
         st.session_state.admin_logged_in = False
     if 'admin_password' not in st.session_state:
-        st.session_state.admin_password = "admin123"
+        st.session_state.admin_password = "tie59413!"
     
     # Navigation
     st.sidebar.title(get_text('navigation', lang))
@@ -791,10 +835,36 @@ def show_pk_mode(elo_system, lang='zh'):
             st.header(get_text('select_dishes', lang))
             st.markdown(get_text('select_dishes_desc', lang))
             
+            # Add search/filter functionality
+            search_text = st.text_input(
+                "🔍 " + ("搜索菜品..." if lang == 'zh' else "Search dishes..."),
+                placeholder="输入菜名进行搜索" if lang == 'zh' else "Type dish name to search",
+                key="dish_search"
+            )
+            
+            # Filter dishes based on search
+            if search_text:
+                filtered_dishes = []
+                for dish in elo_system.all_dishes:
+                    dish_name_zh = dish.lower()
+                    dish_name_en = elo_system.get_dish_name(dish, 'en').lower()
+                    search_lower = search_text.lower()
+                    
+                    if search_lower in dish_name_zh or search_lower in dish_name_en:
+                        filtered_dishes.append(dish)
+            else:
+                filtered_dishes = elo_system.all_dishes
+            
+            # Show filtered count
+            if search_text and filtered_dishes:
+                st.info(f"找到 {len(filtered_dishes)} 道菜品" if lang == 'zh' else f"Found {len(filtered_dishes)} dishes")
+            elif search_text and not filtered_dishes:
+                st.warning("没有找到匹配的菜品" if lang == 'zh' else "No dishes found")
+            
             # Create columns for dish selection
             cols = st.columns(4)
             
-            for i, dish in enumerate(elo_system.all_dishes):
+            for i, dish in enumerate(filtered_dishes):
                 col_idx = i % 4
                 with cols[col_idx]:
                     # Get current Elo for display
@@ -809,7 +879,7 @@ def show_pk_mode(elo_system, lang='zh'):
                     selected = st.checkbox(
                         f"**{dish_name}**\n{score_text} {games_text}",
                         value=is_selected,
-                        key=f"dish_{i}"
+                        key=f"dish_{dish}_{i}"  # Use dish name to ensure uniqueness
                     )
                     
                     # Update selection
@@ -821,16 +891,19 @@ def show_pk_mode(elo_system, lang='zh'):
             # Selected dishes display
             if st.session_state.selected_dishes:
                 st.markdown("---")
-                st.subheader("已选择的菜品：")
-                selected_text = " | ".join(st.session_state.selected_dishes)
+                st.subheader(get_text('selected_dishes', lang))
+                # Translate dish names for display
+                selected_dishes_display = [elo_system.get_dish_name(dish, lang) for dish in st.session_state.selected_dishes]
+                selected_text = " | ".join(selected_dishes_display)
                 st.success(f"🥘 {selected_text}")
                 
                 battle_count = len(list(combinations(st.session_state.selected_dishes, 2)))
-                st.info(f"将进行 **{battle_count}** 场PK对战")
+                battle_info = f"{get_text('battle_count', lang)} **{battle_count}** {get_text('battles', lang)}"
+                st.info(battle_info)
                 
                 # Start battle button
                 if len(st.session_state.selected_dishes) >= 2:
-                    if st.button("🚀 开始PK对战！", type="primary"):
+                    if st.button(get_text('start_battle', lang), type="primary"):
                         # Generate all battle pairs
                         st.session_state.current_battles = list(combinations(st.session_state.selected_dishes, 2))
                         # Shuffle for randomness
@@ -840,11 +913,11 @@ def show_pk_mode(elo_system, lang='zh'):
                         st.session_state.battle_mode = True
                         st.rerun()
                 else:
-                    st.warning("请至少选择2个菜品才能开始PK")
+                    st.warning(get_text('min_dishes_warning', lang))
             
             # Clear selection button
             if st.session_state.selected_dishes:
-                if st.button("🔄 重新选择", type="secondary"):
+                if st.button(get_text('reselect', lang), type="secondary"):
                     st.session_state.selected_dishes = []
                     st.rerun()
         
@@ -890,10 +963,12 @@ def show_pk_mode(elo_system, lang='zh'):
             
             # Progress bar
             progress = (current_index) / total_battles
-            st.progress(progress, text=f"对战进度：{current_index}/{total_battles}")
+            progress_text = f"{get_text('battle_progress', lang)}{current_index}/{total_battles}"
+            st.progress(progress, text=progress_text)
             
-            st.header(f"⚔️ 第 {current_index + 1} 场对战")
-            st.markdown("### 请选择你认为更好吃的菜品：")
+            battle_header = f"{get_text('battle_round', lang)} {current_index + 1} {get_text('round', lang)}"
+            st.header(battle_header)
+            st.markdown(f"### {get_text('choose_better', lang)}")
             
             # Battle interface
             col1, col2, col3 = st.columns([1, 0.3, 1])
@@ -1060,7 +1135,6 @@ def show_admin_panel(elo_system, lang='zh'):
                 else:
                     st.error("密码错误！")
         
-        st.info("默认密码: admin123")
         return
     
     # Admin logged in - show admin panel
